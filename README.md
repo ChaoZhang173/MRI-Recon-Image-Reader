@@ -16,18 +16,17 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 ## File Structure
 
 ```
-python_tools/
-├── cfl_viewer.py          # Main Python script
-├── CFL_Viewer.ipynb       # Jupyter notebook version
-├── cfl_reader.py          # CFL file reading utility
-└── README.md              # This file
+recon-image-reader/
+|-- cfl_viewer.py                      # Advanced Python script viewer
+|-- cfl_reader.py                      # CFL file reading utility
+`-- README.md                          # This file
 ```
 
 ## Requirements
 
 ### Environment Setup
 
-The viewer requires a specific conda environment. Activate it using:
+**Use Specified Conda Environment**
 
 ```bash
 source /lustre/nvwulf/projects/KeeGroup-nvwulf/ykee/miniconda3/etc/profile.d/conda.sh
@@ -36,14 +35,16 @@ conda activate /lustre/nvwulf/projects/KeeGroup-nvwulf/ykee/mrienv/cones-dev
 
 ### Dependencies
 
-- Python 3.8+
-- NumPy
-- Matplotlib
-- `cfl_reader.py` (included in this package)
+- **Python 3.8+**
+- **NumPy**
+- **Matplotlib** 
+- **`cfl_reader.py`** (included in this package)
+
+All dependencies are included in the conda environment.
 
 ## Usage
 
-### Python Script Version
+### Python Script Usage
 
 ```bash
 # Command line usage
@@ -55,13 +56,6 @@ python cfl_viewer.py /path/to/data/mri_data
 
 Alternatively, you can set the `DEFAULT_FILE_PATH` variable in the script to hardcode a file path.
 
-### Jupyter Notebook Version
-
-1. Open `CFL_Viewer.ipynb` in Jupyter
-2. Set the `CFL_FILE_PATH` variable in the first code cell
-3. Run all cells
-4. Uncomment and run the launcher in the last cell
-
 ## Controls
 
 ### Mouse Controls
@@ -71,7 +65,7 @@ Alternatively, you can set the `DEFAULT_FILE_PATH` variable in the script to har
 ### Keyboard Shortcuts
 - **Left/Right arrows**: Previous/next slice
 - **A**: Auto window/level adjustment
-- **R**: Rotate clockwise 90°
+- **R**: Rotate clockwise 90 degrees
 - **X/Y/Z**: Switch to X/Y/Z slice direction
 
 ### GUI Controls
@@ -85,18 +79,6 @@ The viewer supports CFL (Complex Float Library) format data files:
 - `.cfl` file: Binary data
 - `.hdr` file: Header with dimension information
 
-## Examples
-
-### Loading 3D MRI Data
-```python
-# In Python script
-python cfl_viewer.py /data/mri_3d_scan
-
-# In Jupyter notebook
-CFL_FILE_PATH = "/data/mri_3d_scan"
-viewer = launch_viewer()
-```
-
 ### Multi-dimensional Data
 The viewer automatically processes multi-dimensional data (4D, 5D, etc.) by:
 - Keeping the first 3 spatial dimensions (X, Y, Z)
@@ -107,7 +89,8 @@ The viewer automatically processes multi-dimensional data (4D, 5D, etc.) by:
 
 ### Common Issues
 
-1. **ModuleNotFoundError**: Ensure the conda environment is activated
+1. **ModuleNotFoundError**: 
+   - Make sure the correct conda environment is activated
 2. **File not found**: Check that both `.cfl` and `.hdr` files exist
 3. **Memory issues**: Large datasets may require sufficient RAM
 
