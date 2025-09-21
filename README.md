@@ -134,14 +134,6 @@ The viewer automatically processes multi-dimensional data (4D, 5D, etc.) by:
 - Rotations are applied in 90-degree increments
 - Uses NumPy's `rot90` function for efficient rotation
 
-## License
-
-MIT License - See source code for full license text.
-
-## Authors
-
-MRI Research Group
-
 ## Version History
 
 - v1.0: Initial release with advanced multi-dimensional navigation
