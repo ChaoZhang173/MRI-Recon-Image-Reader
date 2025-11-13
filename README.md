@@ -40,11 +40,35 @@ conda activate /lustre/nvwulf/projects/KeeGroup-nvwulf/ykee/mrienv/cones-dev
 python cflViewer.py /path/to/cfl_base
 # Alternative with explicit options
 python cflViewer.py --file /path/to/cfl_base --vox 0.5 0.5 1.0 --title "Subject 01" --cmap plasma
+
+# Example: files /.../imout.21025_mresolved_echo-by-echo-gd.{cfl,hdr}
+python cflViewer.py /.../imout.21025_mresolved_echo-by-echo-gd
 ```
+
+The viewer automatically locates the `.cfl` and `.hdr` pair by using the shared base name.
 
 - `--vox dx dy dz` specifies voxel spacing for correct aspect ratios
 - `--title` customizes the window title (defaults to the file name)
 - `--cmap` chooses a Matplotlib colormap (default: gray)
+
+**Mouse controls**
+- Right-drag: adjust window/level
+- Left-drag (vertical): change slice
+- Left-drag (horizontal, when available): change 4th-dimension index
+- Scroll wheel: move to previous/next slice
+
+**Keyboard controls**
+- `x` / `y` / `z`: switch slice axis
+- Left / Right arrows: previous or next slice
+- `e` / `q`: rotate 90° clockwise or counter-clockwise
+- `a`: toggle auto window/level
+- `Esc`: close the viewer window
+
+**Viewer functions**
+- Rotation: use the Rotate CW/CCW buttons or `e`/`q` keys for 90° increments
+- Auto W/L: enable the AutoWL checkbox or press `a` to let the viewer track optimal contrast
+- Echo/Motion detection: extra-dimension sliders appear automatically for non-spatial axes (echo, motion, etc.), collapsing singleton dimensions
+- Component display: radio buttons switch between magnitude, phase, real, and imaginary views without reloading data
 
 ### Legacy script
 
