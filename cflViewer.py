@@ -31,8 +31,8 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RadioButtons, Button, CheckButtons
 
 # ---------- perf limits ----------
-MOTION_FPS = 60.0              # 鼠标移动处理最大帧率
-DRAW_FPS   = 30.0              # 主窗口重绘最大帧率
+MOTION_FPS = 60.0              # max mouse motion handling rate
+DRAW_FPS   = 30.0              # max main window redraw fps
 
 # ---------- CFL reader ----------
 def read_cfl(basepath):
@@ -40,7 +40,6 @@ def read_cfl(basepath):
     cfl = basepath + ".cfl"
     if not (os.path.exists(hdr) and os.path.exists(cfl)):
         raise FileNotFoundError(f"Missing {hdr} or {cfl}")
-    # 读维度（第一行非注释）
     with open(hdr, "r") as f:
         line = f.readline()
         while line and line.strip().startswith("#"):
@@ -48,19 +47,22 @@ def read_cfl(basepath):
         if not line:
             raise ValueError("HDR has no dims line.")
         dims = [int(x) for x in line.strip().split()]
+
     n = int(np.prod(dims))
     with open(cfl, "rb") as f:
         raw = np.fromfile(f, dtype=np.float32, count=2*n)
     if raw.size != 2*n:
         raise ValueError(f"Expected {2*n} float32, got {raw.size}")
+
     arr = raw.reshape((2, *dims), order="F")
     data = arr[0] + 1j*arr[1]
+
     return data
 
 def squeeze_keep_extras(vol, max_extra=3):
     """
-    压缩所有为1的维度，确保 >=3D。
-    返回：data(ndim>=3), extra_sizes(list), merge_factor(int, 把第(4+max_extra)以后的维度合并到最后一个slider)
+    Squeeze all dimensions of size 1, ensure ndim >= 3.
+    Returns: data(ndim>=3), extra_sizes(list), merge_factor(int, merge dimensions after (4+max_extra) into the last slider)
     """
     v = np.squeeze(vol)
     if v.ndim < 3:
@@ -106,24 +108,24 @@ class Viewer:
 
         # 状态
         self.axis = 'z'            # 'x'|'y'|'z'
-        self.slice_idx = self.Z//2 # 当前切片编号
+        self.slice_idx = self.Z//2 # current slice index
         self.part = "abs"          # 'abs'|'real'|'imag'|'angle'
         self.rot_deg = 0           # 0/90/180/270
-        self.auto_wl = True        # 自动W/L
+        self.auto_wl = True        # auto W/L
         self.window = 1.0
         self.level  = 0.5
 
-        # 节流
+        # Throttling
         self._last_motion = 0.0
         self._last_draw   = 0.0
         self._draw_interval = 1.0/DRAW_FPS
 
-        # 拖动状态
-        self._wl_drag = None        # 右键 W/L 拖动 (x0, y0, win0, lev0)
+        # Dragging state
+        self._wl_drag = None        # right button W/L drag (x0, y0, win0, lev0)
         self._wl_dragging = False
-        self._scroll_drag = None    # 左键 切换slice/第4维 (x0, y0, slice0, d40)
+        self._scroll_drag = None    # left button switch slice/4th dim (x0, y0, slice0, d40)
 
-        # ---- 布局 ----
+        # ---- Layout ----
         self._build_gui()
         self._connect_events()
         self._update_all(force=True)
@@ -134,15 +136,22 @@ class Viewer:
         self.ax_img = self.fig.add_axes([0.06, 0.25, 0.58, 0.70])
         self.ax_img.set_aspect(self._aspect_for_axis(self.axis))
 
-        # 颜色条
+        # Colorbar
         self.ax_cbar = self.fig.add_axes([0.65, 0.25, 0.015, 0.70])
 
-        # 主切片 slider（底部横向）
+        # Main slice slider (horizontal at bottom)
         self.ax_slice = self.fig.add_axes([0.06, 0.16, 0.58, 0.04])
-        self.slider_slice = Slider(self.ax_slice, f"Slice ({self.axis.upper()})",
-                                   1, self._max_slice()+1, valinit=self.slice_idx+1, valstep=1)
+        self.ax_slice.set_xlim(1, self._max_slice() + 1)
+        self.slider_slice = Slider(
+            self.ax_slice,
+            f"Slice ({self.axis.upper()})",
+            1,
+            self._max_slice() + 1,
+            valinit=self.slice_idx + 1,
+            valstep=1,
+        )
 
-        # 额外维度 slider（最多3个，逐行放；第5维自然会出现第二个slider）
+        # Extra dimension sliders (up to 3, arranged vertically; 5th dimension naturally appears as the second slider)
         self.extra_sliders = []
         y0 = 0.10
         for i in range(self.Nextra):
@@ -153,39 +162,39 @@ class Viewer:
             self.extra_sliders.append(sld)
             y0 -= 0.06
 
-        # 右侧控制面板
+        # Right control panel
         right = 0.72
-        # 1) 选择分量
+        # 1) Component selection
         ax_radio = self.fig.add_axes([right, 0.72, 0.25, 0.18])
         ax_radio.set_title("Component")
         self.radio_comp = RadioButtons(ax_radio, ("abs","real","imag","angle"), active=0)
 
-        # 2) 切片方向
+        # 2) Slice axis
         ax_axis = self.fig.add_axes([right, 0.56, 0.25, 0.12])
         ax_axis.set_title("Slice Axis")
         self.radio_axis = RadioButtons(ax_axis, ("x","y","z"), active=2)
 
-        # 3) 旋转按钮
+        # 3) Rotation buttons
         ax_rot_cw  = self.fig.add_axes([right, 0.50, 0.12, 0.05])
         ax_rot_ccw = self.fig.add_axes([right+0.13, 0.50, 0.12, 0.05])
         self.btn_rot_cw  = Button(ax_rot_cw, "Rotate CW")
         self.btn_rot_ccw = Button(ax_rot_ccw, "Rotate CCW")
 
-        # 4) AutoWL 勾选
+        # 4) AutoWL checkbox
         ax_chk = self.fig.add_axes([right, 0.42, 0.25, 0.06])
         self.chk = CheckButtons(ax_chk, ["AutoWL"], [True])
 
-        # 5) W/L 信息（只显示）
+        # 5) W/L info (display only)
         ax_info = self.fig.add_axes([right, 0.25, 0.25, 0.14]); ax_info.axis("off")
         self.txt_info = ax_info.text(0, 1, "W/L: - / -", va="top", fontsize=9)
 
-        # 6) 前后切片按钮
+        # 6) Prev/Next slice buttons
         ax_prev = self.fig.add_axes([right, 0.18, 0.12, 0.05])
         ax_next = self.fig.add_axes([right+0.13, 0.18, 0.12, 0.05])
         self.btn_prev = Button(ax_prev, "Prev")
         self.btn_next = Button(ax_next, "Next")
 
-        # 初始化图像和colorbar
+        # Initialize image and colorbar
         img = self._current_image2d()
         self.im = self.ax_img.imshow(img, cmap=self._cmap_for_part(),
                                      origin="upper", interpolation="nearest")
@@ -216,11 +225,11 @@ class Viewer:
         return "hsv" if self.part == "angle" else self.cmap_name
 
     def _aspect_for_axis(self, axis):
-        # imshow aspect = (y_scale/x_scale). 选择对应体素尺寸比。
+        # imshow aspect = (y_scale/x_scale). Choose corresponding voxel size ratio.
         dx, dy, dz = self.vox
         if axis == 'z':   return dy/dx
-        if axis == 'x':   return dy/dz  # 显示 (Y,Z)
-        if axis == 'y':   return dx/dz  # 显示 (X,Z)
+        if axis == 'x':   return dy/dz  # display (Y,Z)
+        if axis == 'y':   return dx/dz  # display (X,Z)
         return 1.0
 
     def _max_slice(self):
@@ -229,7 +238,7 @@ class Viewer:
         return self.Z-1
 
     def _current_indices(self):
-        # 构造切片索引（含额外维度）
+        # Construct slice indices (including extra dimensions)
         idx = [slice(None), slice(None), slice(None)]
         if self.axis == 'x':
             idx[0] = self.slice_idx
@@ -270,6 +279,9 @@ class Viewer:
         self.im.set_data(a)
         self.im.set_cmap(self._cmap_for_part())
         self.im.set_clim(vmin, vmax)
+        h, w = a.shape
+        self.ax_img.set_xlim(-0.5, w - 0.5)
+        self.ax_img.set_ylim(h - 0.5, -0.5)
         self.ax_img.set_aspect(self._aspect_for_axis(self.axis))
         self.ax_img.set_title(f"{self.part} — {self.axis.upper()} slice {self.slice_idx+1}", fontsize=12)
         try:
@@ -309,11 +321,13 @@ class Viewer:
 
     def _on_radio_axis(self, label):
         self.axis = str(label)
-        # 重设 slice slider 的范围与标签
+        # Reset slice slider range and label
         self.slider_slice.valmin = 1
         self.slider_slice.valmax = self._max_slice()+1
         self.slider_slice.label.set_text(f"Slice ({self.axis.upper()})")
-        # 跳到中间
+        # update slider limits
+        self.slider_slice.ax.set_xlim(self.slider_slice.valmin, self.slider_slice.valmax)
+        # Jump to middle
         mid = (self._max_slice())//2
         self._set_slider_safely(self.slider_slice, mid+1)
         self.slice_idx = mid
@@ -361,13 +375,13 @@ class Viewer:
     def _on_press(self, ev):
         if ev.inaxes != self.ax_img:
             return
-        if ev.button == 3:  # 右键开始 W/L 拖动
+        if ev.button == 3:  # Right button starts W/L drag
             self._wl_drag = (ev.x, ev.y, self.window, self.level)
             self._wl_dragging = True
             if self.cbar is not None:
                 self.ax_cbar.set_visible(False)
                 self._throttled_draw(force=True)
-        elif ev.button == 1:  # 左键开始 slice/第4维 拖动
+        elif ev.button == 1:  # Left button starts slice/4th dimension drag
             d40 = self.extra_idx[0] if self.Nextra >= 1 else 0
             self._scroll_drag = (ev.x, ev.y, self.slice_idx, d40)
 
@@ -387,7 +401,7 @@ class Viewer:
             return
         self._last_motion = now
 
-        # 右键：W/L 拖动
+        # Right button: W/L drag
         if self._wl_drag is not None:
             x0, y0, win0, lev0 = self._wl_drag
             dx = (ev.x - x0) if ev.x is not None else 0.0
@@ -398,22 +412,22 @@ class Viewer:
             self._apply_wl()
             return
 
-        # 左键：水平->第4维，垂直->slice
+        # Left button: horizontal -> 4th dimension, vertical -> slice
         if self._scroll_drag is not None and ev.inaxes == self.ax_img and ev.x is not None and ev.y is not None:
             x0, y0, s0, d40 = self._scroll_drag
             dx = ev.x - x0
             dy = ev.y - y0
-            # 40px 作为1步
+            # 40px as one step
             step_t = int(np.round(dx / 40.0))
             step_s = int(np.round(-dy / 40.0))
 
-            # 更新 slice
+            # Update slice
             new_slice = int(np.clip(s0 + step_s, 0, self._max_slice()))
             if new_slice != self.slice_idx:
                 self.slice_idx = new_slice
                 self._set_slider_safely(self.slider_slice, self.slice_idx+1)
 
-            # 更新第4维（若存在）
+            # Update 4th dimension (if exists)
             if self.Nextra >= 1:
                 max_t = self.extra_sizes[0] - 1
                 new_t = int(np.clip(d40 + step_t, 0, max_t))
@@ -437,7 +451,7 @@ def parse_args():
     ap = argparse.ArgumentParser(description="BART CFL viewer (X/Y/Z, rotation, auto WL, extra dims)")
     ap.add_argument("file", nargs="?", help="base path WITHOUT extension (e.g. /path/to/imout)")
     ap.add_argument("--file", dest="file_flag", help="same as positional -- base path w/o extension")
-    ap.add_argument("--vox", type=float, nargs=3, default=(1,1,1), help="voxel size dx dy dz")
+    ap.add_argument("--vox", type=float, nargs=3, default=None, help="voxel size dx dy dz")
     ap.add_argument("--title", default="", help="window title")
     ap.add_argument("--cmap", default="gray", help="matplotlib colormap")
     return ap.parse_args()
@@ -447,10 +461,20 @@ def main():
     base = args.file_flag or args.file
     if not base:
         raise SystemExit("Please provide CFL base path as positional argument or via --file")
+
     vol = read_cfl(base)
     print("raw shape from .hdr:", vol.shape)
-    viewer = Viewer(vol, vox=args.vox, title=args.title or (os.path.basename(base)+" (auto)"), cmap=args.cmap)
+
+    vox = tuple(args.vox) if args.vox is not None else (1.0, 1.0, 1.0)
+
+    viewer = Viewer(
+        vol,
+        vox=vox,
+        title=args.title or (os.path.basename(base) + " (auto)"),
+        cmap=args.cmap
+    )
     plt.show()
+
 
 if __name__ == "__main__":
     main()
