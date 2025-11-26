@@ -15,7 +15,7 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 
 - `cflViewer.py` — official stable viewer with full multi-dimensional GUI controls (use this script)
 - `cfl_viewer.py` — legacy viewer kept for reference only; deprecated due to known issues
-- `cfl_reader.py` — helper module for loading CFL data
+- `cfl_reader.py` — helper module for loading CFL data, no longer used
 
 ## Environment
 
