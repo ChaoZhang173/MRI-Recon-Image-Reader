@@ -91,6 +91,19 @@ def component_view(arr, which):
     if which == "angle": return np.angle(arr)
     raise ValueError(which)
 
+def rotate_cw_contig(img, k):
+    """Rotate 2D array clockwise by k*90 deg, return C-contiguous."""
+    k %= 4
+    if k == 0:
+        out = img
+    elif k == 1:   # CW 90
+        out = np.flipud(img).T
+    elif k == 2:   # 180
+        out = np.flipud(np.fliplr(img))
+    else:          # CW 270
+        out = np.fliplr(img).T
+    return np.ascontiguousarray(out)
+
 # ---------- Viewer ----------
 class Viewer:
     def __init__(self, data, vox=(1,1,1), title="", cmap="gray"):
@@ -227,9 +240,9 @@ class Viewer:
     def _aspect_for_axis(self, axis):
         # imshow aspect = (y_scale/x_scale). Choose corresponding voxel size ratio.
         dx, dy, dz = self.vox
-        if axis == 'z':   return dy/dx
-        if axis == 'x':   return dy/dz  # display (Y,Z)
-        if axis == 'y':   return dx/dz  # display (X,Z)
+        if axis == 'z':   return dy/dx   # rows=Y, cols=X
+        if axis == 'y':   return dz/dx   # rows=Z, cols=X
+        if axis == 'x':   return dz/dy   # rows=Z, cols=Y
         return 1.0
 
     def _max_slice(self):
@@ -254,8 +267,9 @@ class Viewer:
         idx = self._current_indices()
         slab = self.data[idx]
         img = component_view(slab, self.part)
-        k = (self.rot_deg % 360)//90
-        if k: img = np.rot90(img, k=k)
+        img = img.T
+        k_cw = int((int(self.rot_deg) // 90) % 4)
+        img = rotate_cw_contig(img, k_cw)
         return img
 
     def _auto_wl_from(self, a2d):
@@ -280,10 +294,19 @@ class Viewer:
         self.im.set_cmap(self._cmap_for_part())
         self.im.set_clim(vmin, vmax)
         h, w = a.shape
+        self.im.set_extent((-0.5, w-0.5, h-0.5, -0.5))
         self.ax_img.set_xlim(-0.5, w - 0.5)
         self.ax_img.set_ylim(h - 0.5, -0.5)
-        self.ax_img.set_aspect(self._aspect_for_axis(self.axis))
-        self.ax_img.set_title(f"{self.part} — {self.axis.upper()} slice {self.slice_idx+1}", fontsize=12)
+
+        asp = self._aspect_for_axis(self.axis)
+        if (self.rot_deg % 180) != 0:   # 90/270 deg -> swap x/y
+            if asp != 0:
+                asp = 1.0 / asp
+        self.ax_img.set_aspect(asp)
+        k_cw = int((int(self.rot_deg) // 90) % 4)
+        self.ax_img.set_title(
+            f"{self.part} — {self.axis.upper()} slice {self.slice_idx+1} — rot {self.rot_deg}° (k={k_cw})",
+            fontsize=12)
         try:
             self.cbar.update_normal(self.im)
         except Exception:
@@ -334,7 +357,8 @@ class Viewer:
         self._update_all(force=True)
 
     def _rotate(self, delta_deg):
-        self.rot_deg = (self.rot_deg + delta_deg) % 360
+        self.rot_deg = (int(self.rot_deg) + int(delta_deg)) % 360
+        self.rot_deg = (self.rot_deg // 90) * 90
         self._update_all()
 
     def _on_check(self, label):
