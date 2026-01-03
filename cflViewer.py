@@ -9,11 +9,12 @@ Mouse:
   Wheel      : prev/next slice (in image axes)
 
 Keys:
-  x/y/z      : switch slice axis
-  ←/→        : prev/next slice
-  e / q      : rotate 90° CW / CCW
+  1/2/3      : switch slice axis (x/y/z)
+  ↑/↓        : prev/next slice
+  ←/→        : prev/next 4th dim (D4, e.g. echoes) if exists
+  z / c      : rotate 90° CCW / CW
   a          : toggle Auto W/L
-  ESC        : close
+  ESC/q      : close
 """
 
 import os, argparse, time
@@ -128,6 +129,10 @@ class Viewer:
         self.window = 1.0
         self.level  = 0.5
 
+        # Angle colormap option: default keep gray; optionally switch to color (hsv)
+        self.angle_color = False
+        self.angle_cmap_name = "hsv"
+
         # Throttling
         self._last_motion = 0.0
         self._last_draw   = 0.0
@@ -193,9 +198,9 @@ class Viewer:
         self.btn_rot_cw  = Button(ax_rot_cw, "Rotate CW")
         self.btn_rot_ccw = Button(ax_rot_ccw, "Rotate CCW")
 
-        # 4) AutoWL checkbox
-        ax_chk = self.fig.add_axes([right, 0.42, 0.25, 0.06])
-        self.chk = CheckButtons(ax_chk, ["AutoWL"], [True])
+        # 4) AutoWL + AngleColor checkbox
+        ax_chk = self.fig.add_axes([right, 0.40, 0.25, 0.09])
+        self.chk = CheckButtons(ax_chk, ["AutoWL", "AngleColor"], [True, False])
 
         # 5) W/L info (display only)
         ax_info = self.fig.add_axes([right, 0.25, 0.25, 0.14]); ax_info.axis("off")
@@ -235,7 +240,9 @@ class Viewer:
 
     # ----- helpers -----
     def _cmap_for_part(self):
-        return "hsv" if self.part == "angle" else self.cmap_name
+        if self.part == "angle":
+            return self.angle_cmap_name if self.angle_color else self.cmap_name
+        return self.cmap_name
 
     def _aspect_for_axis(self, axis):
         # imshow aspect = (y_scale/x_scale). Choose corresponding voxel size ratio.
@@ -365,6 +372,9 @@ class Viewer:
         if label == "AutoWL":
             self.auto_wl = not self.auto_wl
             self._update_all()
+        elif label == "AngleColor":
+            self.angle_color = not self.angle_color
+            self._update_all()
 
     def _on_scroll(self, ev):
         if ev.inaxes != self.ax_img:
@@ -379,17 +389,48 @@ class Viewer:
             self._set_slider_safely(self.slider_slice, self.slice_idx+1)
             self._update_all()
 
+    def _step_extra(self, k, step):
+        if self.Nextra <= k:
+            return
+        new_idx = int(np.clip(self.extra_idx[k] + step, 0, self.extra_sizes[k]-1))
+        if new_idx != self.extra_idx[k]:
+            self.extra_idx[k] = new_idx
+            self._set_slider_safely(self.extra_sliders[k], self.extra_idx[k] + 1)
+            self._update_all()
+
     def _on_key(self, ev):
-        if ev.key == "left":  self._step_slice(-1)
-        elif ev.key == "right": self._step_slice(+1)
-        elif ev.key == "x":   self.radio_axis.set_active(0)
-        elif ev.key == "y":   self.radio_axis.set_active(1)
-        elif ev.key == "z":   self.radio_axis.set_active(2)
-        elif ev.key == "e":   self._rotate(+90)
-        elif ev.key == "q":   self._rotate(-90)
+        # ---- navigation ----
+        if ev.key == "up":
+            self._step_slice(-1)
+        elif ev.key == "down":
+            self._step_slice(+1)
+        elif ev.key == "left":
+            # left/right for 4th dim (D4); fallback to slice if no extra dim
+            if self.Nextra >= 1:
+                self._step_extra(0, -1)
+            else:
+                self._step_slice(-1)
+        elif ev.key == "right":
+            if self.Nextra >= 1:
+                self._step_extra(0, +1)
+            else:
+                self._step_slice(+1)
+        # ---- slice axis switching: 1/2/3 -> x/y/z ----
+        elif ev.key == "1":
+            self.radio_axis.set_active(0)  # x
+        elif ev.key == "2":
+            self.radio_axis.set_active(1)  # y
+        elif ev.key == "3":
+            self.radio_axis.set_active(2)  # z
+        # ---- rotation: z/c ----
+        elif ev.key == "z":
+            self._rotate(-90)  # CCW
+        elif ev.key == "c":
+            self._rotate(+90)  # CW
+        # ---- auto WL ----
         elif ev.key == "a":
             self.auto_wl = not self.auto_wl
-            st = self.chk.get_status()[0]
+            st = self.chk.get_status()[0]  # AutoWL is index 0
             if st != self.auto_wl:
                 self.chk.set_active(0)
             self._update_all()
@@ -402,9 +443,6 @@ class Viewer:
         if ev.button == 3:  # Right button starts W/L drag
             self._wl_drag = (ev.x, ev.y, self.window, self.level)
             self._wl_dragging = True
-            if self.cbar is not None:
-                self.ax_cbar.set_visible(False)
-                self._throttled_draw(force=True)
         elif ev.button == 1:  # Left button starts slice/4th dimension drag
             d40 = self.extra_idx[0] if self.Nextra >= 1 else 0
             self._scroll_drag = (ev.x, ev.y, self.slice_idx, d40)
@@ -413,9 +451,6 @@ class Viewer:
         if self._wl_dragging and ev.button == 3:
             self._wl_drag = None
             self._wl_dragging = False
-            if self.cbar is not None:
-                self.ax_cbar.set_visible(True)
-                self._throttled_draw(force=True)
         if self._scroll_drag is not None and ev.button == 1:
             self._scroll_drag = None
 
