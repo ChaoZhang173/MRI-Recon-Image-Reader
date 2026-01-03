@@ -9,9 +9,9 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 - Navigation for higher-dimensional datasets (4D, 5D, 6D)
 - Automatic dimension squeezing with extra-dimension sliders
 - Multiple display modes: magnitude, phase (angle), real, imaginary
-- Auto window/level adjustment for fast contrast tuning (robust to NaN-only slices)
+- Auto window/level adjustment for fast contrast tuning
 - Keyboard navigation for both slices and the 4th dimension (e.g., echo browsing)
-- Colorbar stays visible during manual contrast adjustment (useful for quantitative tuning)
+- Colorbar stays visible during manual contrast adjustment
 - Optional angle colormap: keep gray by default, switch to color when desired
 
 ## Files
