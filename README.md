@@ -10,13 +10,15 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 - Automatic dimension squeezing with extra-dimension sliders
 - Multiple display modes: magnitude, phase (angle), real, imaginary
 - Auto window/level adjustment for fast contrast tuning
-- Keyboard navigation for both slices and the 4th dimension (e.g., echo browsing)
+- Keyboard navigation for slices and extra dimensions (D4/D5)
 - Colorbar stays visible during manual contrast adjustment
 - Optional angle colormap: keep gray by default, switch to color when desired
+- Side-by-side comparison viewer (Data1 / Data2 / Diff) for quick volume comparison
 
 ## Files
 
-- `cflViewer.py` — official stable viewer with full multi-dimensional GUI controls (use this script)
+- `cflViewer.py` — official stable viewer with full multi-dimensional GUI controls (single dataset)
+- `compareViewer.py` — compare viewer that shows **Data1 / Data2 / Diff (A-B)** side-by-side
 - `cfl_viewer.py` — legacy viewer kept for reference only; deprecated due to known issues
 - `cfl_reader.py` — helper module for loading CFL data, no longer used
 
@@ -64,6 +66,7 @@ The viewer automatically locates the `.cfl` and `.hdr` pair by using the shared 
 - `1` / `2` / `3`: switch slice axis (X / Y / Z)
 - Up / Down arrows: previous / next slice
 - Left / Right arrows: previous / next 4th dimension (D4, e.g., echoes); falls back to slice if no extra dim
+- Ctrl + Left / Right arrows: previous / next 5th dimension (D5, e.g., motion) when available
 - `z` / `c`: rotate 90° counter-clockwise / clockwise
 - `a`: toggle auto window/level
 - `Esc` / `q`: close the viewer window
@@ -75,6 +78,29 @@ The viewer automatically locates the `.cfl` and `.hdr` pair by using the shared 
 - Echo/Motion detection: extra-dimension sliders appear automatically for non-spatial axes (echo, motion, etc.), collapsing singleton dimensions
 - Component display: radio buttons switch between magnitude, phase (angle), real, and imaginary views without reloading data
 - Angle colormap: angle view uses gray by default; enable the `AngleColor` checkbox (right panel) to switch to a color colormap (e.g., HSV)
+
+### `compareViewer.py` (Data1 / Data2 / Diff)
+
+`compareViewer.py` loads **two** CFL volumes and shows three panels side-by-side:
+
+- **Data1**
+- **Data2**
+- **Diff (A - B)**
+
+Each panel has its own horizontal colorbar underneath. Data1 and Data2 share the same intensity scale (window/level) to make visual comparison fair, while Diff uses its own scale.
+
+```bash
+python compareViewer.py /path/to/cfl_base_A /path/to/cfl_base_B
+
+# With explicit options
+python compareViewer.py /path/to/cfl_base_A /path/to/cfl_base_B --vox 0.5 0.5 1.0 --title "A vs B" --cmap gray
+```
+
+All navigation and display controls (slice axis, slice index, D4/D5 sliders, rotation, component, AutoWL, AngleColor, etc.) apply to **all three panels simultaneously**.
+
+**Notes**
+- Diff is computed on-demand and cached in memory (no disk output) for smooth interaction.
+- For datasets with extra dimensions, the indexing is synchronized across all three panels.
 
 ### Legacy script
 
