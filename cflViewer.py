@@ -12,6 +12,7 @@ Keys:
   1/2/3      : switch slice axis (x/y/z)
   ↑/↓        : prev/next slice
   ←/→        : prev/next 4th dim (D4, e.g. echoes) if exists
+  Ctrl+←/→   : prev/next 5th dim (D5, e.g. motions) if exists
   z / c      : rotate 90° CCW / CW
   a          : toggle Auto W/L
   ESC/q      : close
@@ -399,6 +400,16 @@ class Viewer:
             self._update_all()
 
     def _on_key(self, ev):
+        # ---- ctrl + left/right for 5th dim (D5) ----
+        # Matplotlib may report "ctrl+left" or "control+left" depending on backend.
+        if ev.key in ("ctrl+left", "control+left"):
+            if self.Nextra >= 2:
+                self._step_extra(1, -1)   # D5
+            return
+        elif ev.key in ("ctrl+right", "control+right"):
+            if self.Nextra >= 2:
+                self._step_extra(1, +1)   # D5
+            return
         # ---- navigation ----
         if ev.key == "up":
             self._step_slice(-1)
