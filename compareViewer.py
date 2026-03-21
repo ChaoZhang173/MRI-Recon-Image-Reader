@@ -15,11 +15,13 @@ Mouse:
 
 Keys:
   1/2/3      : switch slice axis (x/y/z)
-  ↑/↓        : prev/next slice
-  ←/→        : prev/next 4th dim (D4, e.g. echoes) if exists
-  Ctrl+←/→   : prev/next 5th dim (D5, e.g. motions) if exists
+  ←/→        : prev/next slice
+  ↑/↓        : next/prev 4th dim (D4, e.g. echoes) if exists
+  Ctrl+↑/↓   : next/prev 5th dim (D5, e.g. motions) if exists
   z / c      : rotate 90° CCW / CW
-  a          : toggle Auto W/L (for BOTH main and diff)
+  w          : toggle Auto W/L (for BOTH main and diff)
+  n          : toggle Normalize
+  a          : toggle AngleColor
   ESC/q      : close
 """
 
@@ -143,12 +145,15 @@ class CompareViewer:
         self.part = "abs"
         self.rot_deg = 0
         self.auto_wl = True
+        self.normalize = False
 
         # W/L: main(1&2共用) + diff(单独)
         self.window_main = 1.0
         self.level_main  = 0.5
         self.window_diff = 1.0
         self.level_diff  = 0.0
+        self.norm_scale1 = 1.0
+        self.norm_scale2 = 1.0
 
         # Angle colormap option
         self.angle_color = False
@@ -245,11 +250,11 @@ class CompareViewer:
         self.btn_rot_cw  = Button(ax_rot_cw, "Rotate CW")
         self.btn_rot_ccw = Button(ax_rot_ccw, "Rotate CCW")
 
-        ax_chk = self.fig.add_axes([right, 0.40, 0.25, 0.09])
-        self.chk = CheckButtons(ax_chk, ["AutoWL", "AngleColor"], [True, False])
+        ax_chk = self.fig.add_axes([right, 0.38, 0.25, 0.12])
+        self.chk = CheckButtons(ax_chk, ["AutoWL", "Normalize", "AngleColor"], [True, False, False])
 
-        ax_info = self.fig.add_axes([right, 0.25, 0.25, 0.14]); ax_info.axis("off")
-        self.txt_info = ax_info.text(0, 1, "W/L:\n- / -\n- / -", va="top", fontsize=9)
+        ax_info = self.fig.add_axes([right, 0.22, 0.25, 0.14]); ax_info.axis("off")
+        self.txt_info = ax_info.text(0, 1, "W/L:\n- / -\n- / -\nNorm: off", va="top", fontsize=9)
 
         ax_prev = self.fig.add_axes([right, 0.18, 0.12, 0.05])
         ax_next = self.fig.add_axes([right+0.13, 0.18, 0.12, 0.05])
@@ -350,15 +355,37 @@ class CompareViewer:
         img = rotate_cw_contig(img, k_cw)
         return img
 
+    def _safe_norm_scale(self, a2d):
+        # Use abs-max so signed real/imag images normalize consistently.
+        scale = float(np.nanmax(np.abs(a2d)))
+        if not np.isfinite(scale) or scale <= 0.0:
+            return 1.0
+        return scale
+
+    def _normalize_display_pair(self, a1, a2):
+        if not self.normalize:
+            self.norm_scale1 = 1.0
+            self.norm_scale2 = 1.0
+            return a1, a2
+
+        self.norm_scale1 = self._safe_norm_scale(a1)
+        self.norm_scale2 = self._safe_norm_scale(a2)
+        return a1 / self.norm_scale1, a2 / self.norm_scale2
+
     def _current_images2d(self):
         idx = self._current_indices()
         slab1 = self.data1[idx]
         slab2 = self.data2[idx]
-        slabd = self._get_diff_slab(idx)
 
         a1 = self._slab_to_img2d(slab1)
         a2 = self._slab_to_img2d(slab2)
-        ad = self._slab_to_img2d(slabd)
+        a1, a2 = self._normalize_display_pair(a1, a2)
+
+        if self.normalize:
+            ad = a1 - a2
+        else:
+            slabd = self._get_diff_slab(idx)
+            ad = self._slab_to_img2d(slabd)
         return a1, a2, ad
 
     def _auto_wl_from(self, a2d):
@@ -441,10 +468,16 @@ class CompareViewer:
         except Exception:
             pass
 
+        if self.normalize:
+            norm_text = f"Norm A/B: {self.norm_scale1:.6g} / {self.norm_scale2:.6g}"
+        else:
+            norm_text = "Norm: off"
+
         self.txt_info.set_text(
             "W/L:\n"
             f"main: {self.window_main:.6g} / {self.level_main:.6g}\n"
-            f"diff: {self.window_diff:.6g} / {self.level_diff:.6g}"
+            f"diff: {self.window_diff:.6g} / {self.level_diff:.6g}\n"
+            f"{norm_text}"
         )
         self._throttled_draw(force=force)
 
@@ -496,10 +529,13 @@ class CompareViewer:
     def _on_check(self, label):
         if label == "AutoWL":
             self.auto_wl = not self.auto_wl
-            self._update_all()
+            self._update_all(force=True)
+        elif label == "Normalize":
+            self.normalize = not self.normalize
+            self._update_all(force=True)
         elif label == "AngleColor":
             self.angle_color = not self.angle_color
-            self._update_all()
+            self._update_all(force=True)
 
     def _on_scroll(self, ev):
         if not self._in_img_axes(ev.inaxes):
@@ -524,29 +560,29 @@ class CompareViewer:
             self._update_all()
 
     def _on_key(self, ev):
-        if ev.key in ("ctrl+left", "control+left"):
-            if self.Nextra >= 2:
-                self._step_extra(1, -1)
-            return
-        elif ev.key in ("ctrl+right", "control+right"):
+        if ev.key in ("ctrl+up", "control+up"):
             if self.Nextra >= 2:
                 self._step_extra(1, +1)
             return
+        elif ev.key in ("ctrl+down", "control+down"):
+            if self.Nextra >= 2:
+                self._step_extra(1, -1)
+            return
 
-        if ev.key == "up":
+        if ev.key == "left":
             self._step_slice(-1)
-        elif ev.key == "down":
-            self._step_slice(+1)
-        elif ev.key == "left":
-            if self.Nextra >= 1:
-                self._step_extra(0, -1)
-            else:
-                self._step_slice(-1)
         elif ev.key == "right":
+            self._step_slice(+1)
+        elif ev.key == "up":
             if self.Nextra >= 1:
                 self._step_extra(0, +1)
             else:
                 self._step_slice(+1)
+        elif ev.key == "down":
+            if self.Nextra >= 1:
+                self._step_extra(0, -1)
+            else:
+                self._step_slice(-1)
         elif ev.key == "1":
             self.radio_axis.set_active(0)
         elif ev.key == "2":
@@ -557,12 +593,12 @@ class CompareViewer:
             self._rotate(-90)
         elif ev.key == "c":
             self._rotate(+90)
+        elif ev.key == "w":
+            self.chk.set_active(0)
+        elif ev.key == "n":
+            self.chk.set_active(1)
         elif ev.key == "a":
-            self.auto_wl = not self.auto_wl
-            st = self.chk.get_status()[0]
-            if st != self.auto_wl:
-                self.chk.set_active(0)
-            self._update_all()
+            self.chk.set_active(2)
         elif ev.key in ("escape", "q"):
             plt.close(self.fig)
 

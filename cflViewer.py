@@ -10,11 +10,12 @@ Mouse:
 
 Keys:
   1/2/3      : switch slice axis (x/y/z)
-  ↑/↓        : prev/next slice
-  ←/→        : prev/next 4th dim (D4, e.g. echoes) if exists
-  Ctrl+←/→   : prev/next 5th dim (D5, e.g. motions) if exists
+  ←/→        : prev/next slice
+  ↑/↓        : next/prev 4th dim (D4, e.g. echoes) if exists
+  Ctrl+↑/↓   : next/prev 5th dim (D5, e.g. motions) if exists
   z / c      : rotate 90° CCW / CW
-  a          : toggle Auto W/L
+  w          : toggle Auto W/L
+  a          : toggle AngleColor
   ESC/q      : close
 """
 
@@ -400,32 +401,31 @@ class Viewer:
             self._update_all()
 
     def _on_key(self, ev):
-        # ---- ctrl + left/right for 5th dim (D5) ----
-        # Matplotlib may report "ctrl+left" or "control+left" depending on backend.
-        if ev.key in ("ctrl+left", "control+left"):
-            if self.Nextra >= 2:
-                self._step_extra(1, -1)   # D5
-            return
-        elif ev.key in ("ctrl+right", "control+right"):
+        # ---- ctrl + up/down for 5th dim (D5) ----
+        # Matplotlib may report "ctrl+up" or "control+up" depending on backend.
+        if ev.key in ("ctrl+up", "control+up"):
             if self.Nextra >= 2:
                 self._step_extra(1, +1)   # D5
             return
+        elif ev.key in ("ctrl+down", "control+down"):
+            if self.Nextra >= 2:
+                self._step_extra(1, -1)   # D5
+            return
         # ---- navigation ----
-        if ev.key == "up":
+        if ev.key == "left":
             self._step_slice(-1)
-        elif ev.key == "down":
-            self._step_slice(+1)
-        elif ev.key == "left":
-            # left/right for 4th dim (D4); fallback to slice if no extra dim
-            if self.Nextra >= 1:
-                self._step_extra(0, -1)
-            else:
-                self._step_slice(-1)
         elif ev.key == "right":
+            self._step_slice(+1)
+        elif ev.key == "up":
             if self.Nextra >= 1:
                 self._step_extra(0, +1)
             else:
                 self._step_slice(+1)
+        elif ev.key == "down":
+            if self.Nextra >= 1:
+                self._step_extra(0, -1)
+            else:
+                self._step_slice(-1)
         # ---- slice axis switching: 1/2/3 -> x/y/z ----
         elif ev.key == "1":
             self.radio_axis.set_active(0)  # x
@@ -438,13 +438,11 @@ class Viewer:
             self._rotate(-90)  # CCW
         elif ev.key == "c":
             self._rotate(+90)  # CW
-        # ---- auto WL ----
+        # ---- AutoWL / AngleColor ----
+        elif ev.key == "w":
+            self.chk.set_active(0)
         elif ev.key == "a":
-            self.auto_wl = not self.auto_wl
-            st = self.chk.get_status()[0]  # AutoWL is index 0
-            if st != self.auto_wl:
-                self.chk.set_active(0)
-            self._update_all()
+            self.chk.set_active(1)
         elif ev.key == "escape":
             plt.close(self.fig)
 
