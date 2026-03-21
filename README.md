@@ -14,6 +14,7 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 - Colorbar stays visible during manual contrast adjustment
 - Optional angle colormap: keep gray by default, switch to color when desired
 - Side-by-side comparison viewer (Data1 / Data2 / Diff) for quick volume comparison
+- Optional normalization in `compareViewer.py` to scale Data1/Data2 by each displayed image max
 
 ## Files
 
@@ -64,20 +65,21 @@ The viewer automatically locates the `.cfl` and `.hdr` pair by using the shared 
 
 **Keyboard controls**
 - `1` / `2` / `3`: switch slice axis (X / Y / Z)
-- Up / Down arrows: previous / next slice
-- Left / Right arrows: previous / next 4th dimension (D4, e.g., echoes); falls back to slice if no extra dim
-- Ctrl + Left / Right arrows: previous / next 5th dimension (D5, e.g., motion) when available
+- Left / Right arrows: previous / next slice
+- Up / Down arrows: next / previous 4th dimension (D4, e.g., echoes); falls back to next / previous slice if no extra dim
+- Ctrl + Up / Down arrows: next / previous 5th dimension (D5, e.g., motion) when available
 - `z` / `c`: rotate 90° counter-clockwise / clockwise
-- `a`: toggle auto window/level
-- `Esc` / `q`: close the viewer window
+- `w`: toggle auto window/level
+- `a`: toggle `AngleColor`
+- `Esc`: close the viewer window
 
 **Viewer functions**
 - Rotation: use the Rotate CW/CCW buttons or `z`/`c` keys for 90° increments
-- Auto W/L: enable the AutoWL checkbox or press `a` to let the viewer track optimal contrast
+- Auto W/L: enable the AutoWL checkbox or press `w` to let the viewer track optimal contrast
 - Quantitative contrast tuning: the colorbar remains visible even during manual W/L adjustment
 - Echo/Motion detection: extra-dimension sliders appear automatically for non-spatial axes (echo, motion, etc.), collapsing singleton dimensions
 - Component display: radio buttons switch between magnitude, phase (angle), real, and imaginary views without reloading data
-- Angle colormap: angle view uses gray by default; enable the `AngleColor` checkbox (right panel) to switch to a color colormap (e.g., HSV)
+- Angle colormap: angle view uses gray by default; enable the `AngleColor` checkbox (right panel) or press `a` to switch to a color colormap (e.g., HSV)
 
 ### `compareViewer.py` (Data1 / Data2 / Diff)
 
@@ -96,7 +98,24 @@ python compareViewer.py /path/to/cfl_base_A /path/to/cfl_base_B
 python compareViewer.py /path/to/cfl_base_A /path/to/cfl_base_B --vox 0.5 0.5 1.0 --title "A vs B" --cmap gray
 ```
 
-All navigation and display controls (slice axis, slice index, D4/D5 sliders, rotation, component, AutoWL, AngleColor, etc.) apply to **all three panels simultaneously**.
+All navigation and display controls (slice axis, slice index, D4/D5 sliders, rotation, component, AutoWL, Normalize, AngleColor, etc.) apply to **all three panels simultaneously**.
+
+**Keyboard controls**
+- `1` / `2` / `3`: switch slice axis (X / Y / Z)
+- Left / Right arrows: previous / next slice
+- Up / Down arrows: next / previous 4th dimension (D4, e.g., echoes); falls back to next / previous slice if no extra dim
+- Ctrl + Up / Down arrows: next / previous 5th dimension (D5, e.g., motion) when available
+- `z` / `c`: rotate 90° counter-clockwise / clockwise
+- `w`: toggle auto window/level for Data1/Data2 and Diff
+- `n`: toggle `Normalize`
+- `a`: toggle `AngleColor`
+- `Esc` / `q`: close the viewer window
+
+**Compare viewer functions**
+- Shared navigation: component, slice, extra-dimension index, rotation, and axis changes stay synchronized across Data1, Data2, and Diff
+- Shared contrast: Data1 and Data2 share one window/level so comparisons stay visually fair, while Diff keeps an independent scale
+- Normalize: enable the `Normalize` checkbox or press `n` to divide the currently displayed Data1 and Data2 images by their own displayed-image maxima before rendering; the view updates immediately
+- Angle colormap: enable `AngleColor` or press `a` to use a color colormap when the selected component is `angle`
 
 **Notes**
 - Diff is computed on-demand and cached in memory (no disk output) for smooth interaction.
