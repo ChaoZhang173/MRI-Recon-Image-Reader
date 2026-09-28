@@ -20,6 +20,7 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 
 - `cflViewer.py` — official stable viewer with full multi-dimensional GUI controls (single dataset)
 - `compareViewer.py` — compare viewer that shows **Data1 / Data2 / Diff (A-B)** side-by-side
+- `viewer3d.py` — standalone 3D volume/MIP viewer with three orthogonal slices
 - `cfl_viewer.py` — legacy viewer kept for reference only; deprecated due to known issues
 - `cfl_reader.py` — helper module for loading CFL data, no longer used
 
@@ -124,3 +125,46 @@ All navigation and display controls (slice axis, slice index, D4/D5 sliders, rot
 ### Legacy script
 
 `cfl_viewer.py` is no longer maintained and should not be used for new workflows.
+
+## Standalone 3D viewer
+
+`viewer3d.py` adds volume rendering/MIP, three orthogonal slices, complex
+components, extra-dimension selection, contrast, opacity, cutaway, and PNG export.
+It runs on an ordinary monitor; the existing 2D viewers remain independent.
+
+Use Python 3.10+ and a desktop with working graphics. From the repository:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-3d.txt
+python viewer3d.py --demo
+python viewer3d.py /path/to/reconstruction --vox 0.5 0.5 1.0 --spatial-axes 0 1 2
+```
+
+Input accepts a CFL/HDR base path, `.cfl`/`.hdr` filename, or numeric `.npy` file.
+The demo is a generated phantom, not a patient MRI. On macOS, once `.venv` is
+installed, double-click `Launch 3D Viewer.command`, then choose **Open scan**.
+On Windows, activate with `.venv\Scripts\activate` instead.
+
+- `--spatial-axes` gives original, zero-based array axes in displayed X/Y/Z order
+  (default `0 1 2`). Other non-singleton dimensions get separate selectors.
+- `--vox` gives X/Y/Z spacing in mm; omitted spacing uses voxel coordinates.
+  The viewer labels data axes and does not infer anatomical orientation.
+- Singleton spatial axes remain 2D; the viewer does not invent volume thickness.
+- Slice sliders use zero-based indices. Opacity, threshold, and cutaway affect
+  the 3D volume; contrast and colormap also apply to the slices.
+- Drag to rotate, **Shift-drag** to pan, and use the wheel to zoom in any panel.
+  **Reset cameras** restores orthogonal views; **Save view as PNG** saves all four.
+- Edit axes/spacing under **Geometry**, then click **Apply geometry**.
+
+Run tests with the optional 3D environment active:
+
+```bash
+python -m unittest discover -s tests -v
+# Include native GUI/pixel checks on a desktop with working graphics:
+MRI_VIEWER_GUI_TESTS=1 python -m unittest discover -s tests -v
+```
+
+Default tests check data integrity, exact slices, geometry, and display state
+with rendering suppressed. GUI tests additionally render and inspect the views.
