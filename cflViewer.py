@@ -21,6 +21,7 @@ Keys:
 
 import os, argparse, time
 import numpy as np
+from cfl_reader import readcfl as read_cfl, prepare_viewer_data as squeeze_keep_extras
 
 # ---- set a stable backend before importing pyplot ----
 import matplotlib
@@ -36,56 +37,6 @@ from matplotlib.widgets import Slider, RadioButtons, Button, CheckButtons
 # ---------- perf limits ----------
 MOTION_FPS = 60.0              # max mouse motion handling rate
 DRAW_FPS   = 30.0              # max main window redraw fps
-
-# ---------- CFL reader ----------
-def read_cfl(basepath):
-    hdr = basepath + ".hdr"
-    cfl = basepath + ".cfl"
-    if not (os.path.exists(hdr) and os.path.exists(cfl)):
-        raise FileNotFoundError(f"Missing {hdr} or {cfl}")
-    with open(hdr, "r") as f:
-        line = f.readline()
-        while line and line.strip().startswith("#"):
-            line = f.readline()
-        if not line:
-            raise ValueError("HDR has no dims line.")
-        dims = [int(x) for x in line.strip().split()]
-
-    n = int(np.prod(dims))
-    with open(cfl, "rb") as f:
-        raw = np.fromfile(f, dtype=np.float32, count=2*n)
-    if raw.size != 2*n:
-        raise ValueError(f"Expected {2*n} float32, got {raw.size}")
-
-    arr = raw.reshape((2, *dims), order="F")
-    data = arr[0] + 1j*arr[1]
-
-    return data
-
-def squeeze_keep_extras(vol, max_extra=3):
-    """
-    Squeeze all dimensions of size 1, ensure ndim >= 3.
-    Returns: data(ndim>=3), extra_sizes(list), merge_factor(int, merge dimensions after (4+max_extra) into the last slider)
-    """
-    v = np.squeeze(vol)
-    if v.ndim < 3:
-        while v.ndim < 3:
-            v = v[..., np.newaxis]
-    if v.ndim == 3:
-        return np.ascontiguousarray(v), [], 1
-
-    base = v.shape[:3]
-    tail = list(v.shape[3:])
-    if len(tail) <= max_extra:
-        return np.ascontiguousarray(v), tail, 1
-
-    keep = tail[:max_extra-1]
-    last = tail[max_extra-1:]
-    merge = int(np.prod(last))
-    extras = keep + [merge]
-    newshape = (*base, *keep, merge)
-    v2 = np.reshape(v, newshape, order="F")
-    return np.ascontiguousarray(v2), extras, merge
 
 def component_view(arr, which):
     if which == "abs":   return np.abs(arr)
@@ -161,15 +112,16 @@ class Viewer:
 
         # Main slice slider (horizontal at bottom)
         self.ax_slice = self.fig.add_axes([0.06, 0.16, 0.58, 0.04])
-        self.ax_slice.set_xlim(1, self._max_slice() + 1)
+        self.ax_slice.set_xlim(1, max(2, self._max_slice() + 1))
         self.slider_slice = Slider(
             self.ax_slice,
             f"Slice ({self.axis.upper()})",
             1,
-            self._max_slice() + 1,
+            max(2, self._max_slice() + 1),
             valinit=self.slice_idx + 1,
             valstep=1,
         )
+        self.slider_slice.set_active(self._max_slice() > 0)
 
         # Extra dimension sliders (up to 3, arranged vertically; 5th dimension naturally appears as the second slider)
         self.extra_sliders = []
@@ -177,10 +129,12 @@ class Viewer:
         for i in range(self.Nextra):
             ax = self.fig.add_axes([0.06, y0, 0.58, 0.04])
             lab = f"D{4+i}"
+            if self.merge_factor > 1 and i == self.Nextra - 1:
+                lab += "+"
             mx  = self.extra_sizes[i]
             sld = Slider(ax, lab, 1, mx, valinit=1, valstep=1)
             self.extra_sliders.append(sld)
-            y0 -= 0.06
+            y0 -= 0.045
 
         # Right control panel
         right = 0.72
@@ -355,7 +309,8 @@ class Viewer:
         self.axis = str(label)
         # Reset slice slider range and label
         self.slider_slice.valmin = 1
-        self.slider_slice.valmax = self._max_slice()+1
+        self.slider_slice.valmax = max(2, self._max_slice()+1)
+        self.slider_slice.set_active(self._max_slice() > 0)
         self.slider_slice.label.set_text(f"Slice ({self.axis.upper()})")
         # update slider limits
         self.slider_slice.ax.set_xlim(self.slider_slice.valmin, self.slider_slice.valmax)
@@ -517,8 +472,8 @@ class Viewer:
 # ---------- argparse + main ----------
 def parse_args():
     ap = argparse.ArgumentParser(description="BART CFL viewer (X/Y/Z, rotation, auto WL, extra dims)")
-    ap.add_argument("file", nargs="?", help="base path WITHOUT extension (e.g. /path/to/imout)")
-    ap.add_argument("--file", dest="file_flag", help="same as positional -- base path w/o extension")
+    ap.add_argument("file", nargs="?", help="CFL base path, .cfl filename, or .hdr filename")
+    ap.add_argument("--file", dest="file_flag", help="same as positional file: base path, .cfl, or .hdr")
     ap.add_argument("--vox", type=float, nargs=3, default=None, help="voxel size dx dy dz")
     ap.add_argument("--title", default="", help="window title")
     ap.add_argument("--cmap", default="gray", help="matplotlib colormap")

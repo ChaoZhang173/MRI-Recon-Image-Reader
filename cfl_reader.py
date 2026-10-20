@@ -11,22 +11,40 @@ Original: 2016 Tim Loderhose (t.loderhose@student.maastrichtuniversity.nl)
 """
 
 import numpy as np
-import os
+from pathlib import Path
 
 
-def readcfl(filename_base):
+def _base_path(filename_base):
+    """Accept a base path or either member of a CFL/HDR pair."""
+    base = Path(filename_base).expanduser()
+    if base.suffix.lower() in ('.cfl', '.hdr'):
+        base = base.with_suffix('')
+    return base
+
+
+def _element_count(dims):
+    # Python integers avoid overflow when validating large header dimensions.
+    count = 1
+    for dim in dims:
+        count *= int(dim)
+    return count
+
+
+def readcfl(filename_base, mmap=False):
     """
     Read complex data from CFL file.
     
     Parameters:
     -----------
-    filename_base : str
-        Path and filename of cfl file (without extension)
+    filename_base : str or pathlib.Path
+        Base path, .cfl filename, or .hdr filename
+    mmap : bool
+        If True, return a read-only memory map instead of loading the payload.
         
     Returns:
     --------
     data : numpy.ndarray
-        Complex array with the reconstructed data
+        Complex64 array in header axis order, including singleton dimensions
         
     Example:
     --------
@@ -34,29 +52,70 @@ def readcfl(filename_base):
     >>> print(data.shape)
     >>> print(data.dtype)  # Should be complex64
     """
-    # Read dimensions from header file
+    base = _base_path(filename_base)
     dims = read_recon_header(filename_base)
-    
-    # Read complex data from CFL file
-    filename = filename_base + '.cfl'
-    
-    if not os.path.exists(filename):
+    filename = Path(str(base) + '.cfl')
+    if not filename.is_file():
         raise FileNotFoundError(f"CFL file not found: {filename}")
-    
-    # Read binary data as float32
+
+    dtype = np.dtype('<c8')
+    count = _element_count(dims)
+    expected_bytes = count * dtype.itemsize
+    actual_bytes = filename.stat().st_size
+    if actual_bytes != expected_bytes:
+        raise ValueError(
+            f"CFL payload size mismatch: header requires {expected_bytes} bytes, "
+            f"found {actual_bytes} in {filename}."
+        )
+    if mmap:
+        return np.memmap(filename, dtype=dtype, mode='r', shape=tuple(dims), order='F')
+    # BART stores interleaved real/imaginary float32 values with axis 0
+    # varying fastest. Reading complex64 directly preserves each pair.
     with open(filename, 'rb') as fid:
-        # Read interleaved real and imaginary parts
-        data_size = int(np.prod([2] + list(dims)))
-        data_r_i = np.frombuffer(fid.read(), dtype=np.float32, count=data_size)
-    
-    # Reshape to [2, dims...]
-    data_r_i = data_r_i.reshape([2] + list(dims))
-    
-    # Create complex array
-    # data_r_i[0, ...] contains real parts, data_r_i[1, ...] contains imaginary parts
-    data = data_r_i[0, ...] + 1j * data_r_i[1, ...]
-    
-    return data.astype(np.complex64)
+        data = np.fromfile(fid, dtype=dtype, count=count)
+    if data.size != count:
+        raise ValueError(f"CFL payload changed or was truncated while reading {filename}.")
+    return data.reshape(tuple(dims), order='F')
+
+
+def ensure_spatial_dimensions(data):
+    """Preserve input axes, padding missing Y/Z axes with trailing singletons.
+
+    CFL's first three axes are X/Y/Z unless a caller explicitly specifies
+    another mapping. Singleton spatial axes must never be squeezed away.
+    """
+    array = np.asanyarray(data)
+    if array.dtype.kind not in 'biufc':
+        raise ValueError("Volume data must be a numeric array, without objects.")
+    if array.ndim == 0 or any(size == 0 for size in array.shape):
+        raise ValueError("Volume data must have at least one nonempty axis.")
+    if array.ndim < 3:
+        array = array.reshape(array.shape + (1,) * (3 - array.ndim))
+    return array
+
+
+def prepare_viewer_data(data, max_extra=3):
+    """Return XYZ data, compact extra sizes, and the last-slider merge factor.
+
+    Only singleton axes after XYZ are removed. When there are more extra axes
+    than sliders, trailing extras are combined in Fortran order: the earliest
+    merged axis changes fastest. No frames are discarded. Preserve views when
+    possible so loading a large CFL does not force a second full-volume copy.
+    """
+    if (isinstance(max_extra, (bool, np.bool_))
+            or not isinstance(max_extra, (int, np.integer)) or max_extra < 1):
+        raise ValueError("max_extra must be a positive integer.")
+    array = ensure_spatial_dimensions(data)
+    singleton_extras = tuple(axis for axis in range(3, array.ndim)
+                             if array.shape[axis] == 1)
+    if singleton_extras:
+        array = np.squeeze(array, axis=singleton_extras)
+    extras = list(array.shape[3:])
+    if len(extras) <= max_extra:
+        return array, extras, 1
+    merged = _element_count(extras[max_extra - 1:])
+    extras = extras[:max_extra - 1] + [merged]
+    return array.reshape(array.shape[:3] + tuple(extras), order='F'), extras, merged
 
 
 def read_recon_header(filename_base):
@@ -65,30 +124,41 @@ def read_recon_header(filename_base):
     
     Parameters:
     -----------
-    filename_base : str
-        Path and filename base (without extension)
+    filename_base : str or pathlib.Path
+        Base path, .cfl filename, or .hdr filename
         
     Returns:
     --------
     dims : numpy.ndarray
         Array of dimensions
     """
-    filename = filename_base + '.hdr'
-    
-    if not os.path.exists(filename):
+    filename = Path(str(_base_path(filename_base)) + '.hdr')
+    if not filename.is_file():
         raise FileNotFoundError(f"Header file not found: {filename}")
-    
-    with open(filename, 'r') as fid:
-        line = get_next_line(fid)
-        # Parse dimensions from the line
-        dims = np.array([int(x) for x in line.split()])
-    
-    return dims
+
+    try:
+        with open(filename, 'r', encoding='utf-8') as fid:
+            lines = [line.strip() for line in fid
+                     if line.strip() and not line.lstrip().startswith('#')]
+    except UnicodeError as exc:
+        raise ValueError("CFL header must be UTF-8 text containing dimensions.") from exc
+    if len(lines) != 1:
+        raise ValueError("CFL header must contain exactly one dimensions line.")
+    try:
+        dims = [int(token) for token in lines[0].split()]
+    except ValueError as exc:
+        raise ValueError("CFL dimensions must be positive integers.") from exc
+    if not dims or any(dim <= 0 for dim in dims):
+        raise ValueError("CFL dimensions must be positive integers.")
+    try:
+        return np.array(dims, dtype=np.int64)
+    except OverflowError as exc:
+        raise ValueError("CFL dimensions exceed the supported integer range.") from exc
 
 
 def get_next_line(fid):
     """
-    Get next non-comment line from file.
+    Get next nonblank, non-comment line from file.
     
     Parameters:
     -----------
@@ -98,13 +168,14 @@ def get_next_line(fid):
     Returns:
     --------
     line : str
-        Next non-comment line
+        Next nonblank, non-comment line
     """
     while True:
-        line = fid.readline().strip()
-        if not line:
+        line = fid.readline()
+        if line == '':
             raise EOFError("Unexpected end of file")
-        if not line.startswith('#'):
+        line = line.strip()
+        if line and not line.startswith('#'):
             return line
 
 
@@ -114,36 +185,26 @@ def writecfl(filename_base, data):
     
     Parameters:
     -----------
-    filename_base : str
-        Path and filename base (without extension)
+    filename_base : str or pathlib.Path
+        Base path, .cfl filename, or .hdr filename
     data : numpy.ndarray
         Complex array to write
     """
-    # Write header file
-    hdr_filename = filename_base + '.hdr'
-    with open(hdr_filename, 'w') as fid:
+    base = _base_path(filename_base)
+    data = np.asarray(data)
+    if data.ndim == 0 or any(dim == 0 for dim in data.shape):
+        raise ValueError("CFL data must have at least one axis and positive dimensions.")
+    data = np.asarray(data, dtype='<c8')
+
+    hdr_filename = str(base) + '.hdr'
+    with open(hdr_filename, 'w', encoding='utf-8') as fid:
         fid.write('# Dimensions\n')
         fid.write(' '.join(map(str, data.shape)) + '\n')
-    
-    # Write CFL file
-    cfl_filename = filename_base + '.cfl'
-    
-    # Convert to complex64 if needed
-    if data.dtype != np.complex64:
-        data = data.astype(np.complex64)
-    
-    # Interleave real and imaginary parts
-    data_interleaved = np.empty(data.shape + (2,), dtype=np.float32)
-    data_interleaved[..., 0] = data.real
-    data_interleaved[..., 1] = data.imag
-    
-    # Reshape to match MATLAB format [2, dims...]
-    data_reshaped = np.moveaxis(data_interleaved, -1, 0)
-    
-    # Write binary data
-    with open(cfl_filename, 'wb') as fid:
-        data_reshaped.tobytes('C')
-        fid.write(data_reshaped.tobytes())
+
+    # Complex64 already interleaves real/imaginary values; Fortran order
+    # makes the first header dimension vary fastest, as BART requires.
+    with open(str(base) + '.cfl', 'wb') as fid:
+        fid.write(data.tobytes(order='F'))
 
 
 def get_cfl_info(filename_base):
@@ -152,24 +213,26 @@ def get_cfl_info(filename_base):
     
     Parameters:
     -----------
-    filename_base : str
-        Path and filename base (without extension)
+    filename_base : str or pathlib.Path
+        Base path, .cfl filename, or .hdr filename
         
     Returns:
     --------
     info : dict
         Dictionary containing file information
     """
+    base = _base_path(filename_base)
     dims = read_recon_header(filename_base)
-    
-    cfl_filename = filename_base + '.cfl'
-    file_size = os.path.getsize(cfl_filename) if os.path.exists(cfl_filename) else 0
-    expected_size = int(np.prod(dims)) * 2 * 4  # 2 for complex, 4 bytes per float32
+
+    cfl_filename = Path(str(base) + '.cfl')
+    file_size = cfl_filename.stat().st_size if cfl_filename.is_file() else 0
+    total_elements = _element_count(dims)
+    expected_size = total_elements * 8  # interleaved float32 real/imaginary pairs
     
     info = {
         'dimensions': dims,
         'ndims': len(dims),
-        'total_elements': int(np.prod(dims)),
+        'total_elements': total_elements,
         'file_size_bytes': file_size,
         'expected_size_bytes': expected_size,
         'dtype': 'complex64',

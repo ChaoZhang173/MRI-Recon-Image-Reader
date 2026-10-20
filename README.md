@@ -7,7 +7,7 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 - Multi-directional slicing along X, Y, or Z axes
 - 90-degree rotation with both keyboard and button control
 - Navigation for higher-dimensional datasets (4D, 5D, 6D)
-- Automatic dimension squeezing with extra-dimension sliders
+- Spatial-axis preservation with extra-dimension sliders
 - Multiple display modes: magnitude, phase (angle), real, imaginary
 - Auto window/level adjustment for fast contrast tuning
 - Keyboard navigation for slices and extra dimensions (D4/D5)
@@ -21,8 +21,8 @@ An advanced viewer for Complex Float Library (CFL) data with multi-dimensional n
 - `cflViewer.py` — official stable viewer with full multi-dimensional GUI controls (single dataset)
 - `compareViewer.py` — compare viewer that shows **Data1 / Data2 / Diff (A-B)** side-by-side
 - `viewer3d.py` — standalone 3D volume/MIP viewer with three orthogonal slices
-- `cfl_viewer.py` — legacy viewer kept for reference only; deprecated due to known issues
-- `cfl_reader.py` — helper module for loading CFL data, no longer used
+- `cfl_viewer.py` — legacy GUI, using the same corrected CFL reader as the other viewers
+- `cfl_reader.py` — shared BART CFL reader/writer and dimension preparation for the 2D viewers
 
 ## Environment
 
@@ -41,7 +41,7 @@ conda activate /lustre/nvwulf/projects/KeeGroup-nvwulf/ykee/mrienv/cones-dev
 
 ### `cflViewer.py` (stable release)
 
-`cflViewer.py` accepts either a positional base path or the `--file` flag. Provide the path without the `.cfl`/`.hdr` extensions.
+`cflViewer.py` accepts either a positional base path or the `--file` flag. Input may be a base path or a `.cfl`/`.hdr` filename.
 
 ```bash
 python cflViewer.py /path/to/cfl_base
@@ -78,7 +78,7 @@ The viewer automatically locates the `.cfl` and `.hdr` pair by using the shared 
 - Rotation: use the Rotate CW/CCW buttons or `z`/`c` keys for 90° increments
 - Auto W/L: enable the AutoWL checkbox or press `w` to let the viewer track optimal contrast
 - Quantitative contrast tuning: the colorbar remains visible even during manual W/L adjustment
-- Echo/Motion detection: extra-dimension sliders appear automatically for non-spatial axes (echo, motion, etc.), collapsing singleton dimensions
+- Extra dimensions: sliders follow the non-singleton axes after X/Y/Z in header order. Their echo/motion meaning comes from the reconstruction, not from the CFL header. Singleton X/Y/Z axes are preserved; only singleton extra axes are collapsed.
 - Component display: radio buttons switch between magnitude, phase (angle), real, and imaginary views without reloading data
 - Angle colormap: angle view uses gray by default; enable the `AngleColor` checkbox (right panel) or press `a` to switch to a color colormap (e.g., HSV)
 
@@ -124,7 +124,32 @@ All navigation and display controls (slice axis, slice index, D4/D5 sliders, rot
 
 ### Legacy script
 
-`cfl_viewer.py` is no longer maintained and should not be used for new workflows.
+`cflViewer.py` remains the recommended 2D interface. The older `cfl_viewer.py`
+interface is still available and now uses the same validated reader.
+
+### CFL storage and dimensions
+
+All viewers use `cfl_reader.py` to read interleaved real/imaginary float32 pairs
+as complex64, with the first header axis varying fastest (Fortran order).
+The payload must contain exactly `8 × product(header dimensions)` bytes;
+malformed headers and truncated or oversized payloads produce an error.
+`viewer3d.py` retains read-only memory mapping for large files.
+
+The 2D viewers treat the first three header axes as X/Y/Z, preserving spatial
+singleton axes such as `(X, Y, 1, echo, motion)`. Inputs with fewer than three
+axes are padded with singleton axes. Extra singleton axes are removed only
+from the slider layout. If extra axes exceed the available sliders, the final
+slider combines them in Fortran order so every frame remains accessible.
+For other spatial-axis layouts, use `viewer3d.py --spatial-axes`.
+The CFL header records array sizes, not anatomical orientation or voxel spacing;
+X/Y/Z labels alone do not establish patient left/right, anterior/posterior, or
+superior/inferior directions.
+
+Older versions of `cfl_reader.py` incorrectly separated real and imaginary
+halves and reshaped in C order, which could display diagonal stripes from a
+valid reconstruction. Update the helper alongside the viewer scripts.
+The corrected `writecfl` also writes standard BART ordering; files produced by
+the old helper's nonstandard writer need to be re-exported from their source.
 
 ## Standalone 3D viewer
 

@@ -19,12 +19,13 @@ License: MIT
 """
 
 import numpy as np
+import os
 import matplotlib
-matplotlib.use('TkAgg')
+if "MPLBACKEND" not in os.environ:
+    matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RadioButtons, Button
 import sys
-import os
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -33,7 +34,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_FILE_PATH = None
 
 try:
-    from cfl_reader import readcfl
+    from cfl_reader import readcfl, prepare_viewer_data
 except ImportError:
     print("Error: cfl_reader module not found")
     print("Please ensure cfl_reader.py is in the same directory")
@@ -115,49 +116,11 @@ class AdvancedCFLViewer:
         numpy.ndarray
             Processed data with manageable dimensions
         """
-        if data.ndim <= 3:
-            return data
-            
-        # Keep first 3 dimensions
-        shape = list(data.shape)
-        front_3 = shape[:3]
-        remaining = shape[3:]
-        
-        # Find non-unit dimensions in remaining dimensions
-        non_one_dims = [i for i, dim in enumerate(remaining) if dim != 1]
-        
-        if len(non_one_dims) == 0:
-            # All remaining dimensions are 1, extract first 3 dimensions
-            indices = [slice(None)] * 3 + [0] * (data.ndim - 3)
-            return data[tuple(indices)]
-        elif len(non_one_dims) <= 2:
-            # At most 2 non-unit dimensions, keep them
-            indices = [slice(None)] * 3  # Keep first 3 dimensions unchanged
-            
-            # For remaining dimensions, keep non-unit ones, set others to 0
-            kept_dims = 0
-            for i, dim in enumerate(remaining):
-                if dim != 1 and kept_dims < 2:
-                    indices.append(slice(None))
-                    kept_dims += 1
-                else:
-                    indices.append(0)
-            
-            return data[tuple(indices)]
-        else:
-            # More than 2 non-unit dimensions, keep only first 2
-            print("Warning: More than 2 non-unit dimensions found, using first 2")
-            indices = [slice(None)] * 3
-            
-            kept_dims = 0
-            for i, dim in enumerate(remaining):
-                if dim != 1 and kept_dims < 2:
-                    indices.append(slice(None))
-                    kept_dims += 1
-                else:
-                    indices.append(0)
-                    
-            return data[tuple(indices)]
+        processed, self.extra_sizes, self.merge_factor = prepare_viewer_data(data, max_extra=2)
+        if self.merge_factor > 1:
+            print("Combined trailing extra dimensions into Dimension 2 "
+                  "(earliest merged axis changes fastest).")
+        return processed
     
     def setup_dimensions(self):
         """Setup dimension information from processed data"""
@@ -211,9 +174,10 @@ class AdvancedCFLViewer:
         # Slice control slider
         ax_slice = plt.axes([0.05, 0.15, 0.6, 0.04])
         self.slider_slice = Slider(
-            ax_slice, f'Slice ({self.slice_direction.upper()})', 0, self.get_max_slice(), 
-            valinit=self.current_slice, valfmt='%d'
+            ax_slice, f'Slice ({self.slice_direction.upper()})', 0, max(1, self.get_max_slice()),
+            valinit=self.current_slice, valfmt='%d', valstep=1
         )
+        self.slider_slice.set_active(self.get_max_slice() > 0)
         
         # Multi-dimensional data control sliders
         if self.dim1_size > 1:
@@ -228,7 +192,8 @@ class AdvancedCFLViewer:
         if self.dim2_size > 1:
             ax_dim2 = plt.axes([0.05, 0.01, 0.6, 0.04])
             self.slider_dim2 = Slider(
-                ax_dim2, 'Dimension 2', 0, self.dim2_size - 1, 
+                ax_dim2, 'Dimension 2+' if self.merge_factor > 1 else 'Dimension 2',
+                0, self.dim2_size - 1,
                 valinit=self.current_dim2_idx, valfmt='%d'
             )
         else:
@@ -501,7 +466,7 @@ Range: [{np.min(data):.4f}, {np.max(data):.4f}]"""
     # Event handlers
     def on_slice_change(self, val):
         """Handle slice slider change"""
-        self.current_slice = int(val)
+        self.current_slice = max(0, min(self.get_max_slice(), int(val)))
         self.update_display()
         
     def on_dim1_change(self, val):
@@ -522,7 +487,9 @@ Range: [{np.min(data):.4f}, {np.max(data):.4f}]"""
         self.current_slice = self.get_middle_slice()
         
         # Update slider
-        self.slider_slice.valmax = max_slice
+        self.slider_slice.valmax = max(1, max_slice)
+        self.slider_slice.ax.set_xlim(0, max(1, max_slice))
+        self.slider_slice.set_active(max_slice > 0)
         self.slider_slice.set_val(self.current_slice)
         self.slider_slice.label.set_text(f'Slice ({label.upper()})')
         
@@ -654,14 +621,8 @@ def main():
     try:
         print(f"Using {matplotlib.get_backend()} backend")
         
-        # Remove .cfl extension if present
-        if cfl_file.endswith('.cfl'):
-            filename_base = cfl_file[:-4]
-        else:
-            filename_base = cfl_file
-            
-        print(f"Loading: {filename_base}")
-        data = readcfl(filename_base)
+        print(f"Loading: {cfl_file}")
+        data = readcfl(cfl_file)
         print("Loaded successfully")
         
         print(f"Data: {data.shape}, {data.dtype}")

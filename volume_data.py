@@ -11,6 +11,7 @@ from numbers import Integral
 from pathlib import Path
 
 import numpy as np
+from cfl_reader import readcfl, ensure_spatial_dimensions
 
 
 def _component_name(component):
@@ -41,14 +42,8 @@ class VolumeDataset:
     """
 
     def __init__(self, data, spatial_axes=(0, 1, 2), spacing=None, name="Volume"):
-        array = np.asanyarray(data)
-        if array.dtype.kind not in "biufc":
-            raise ValueError("Volume data must be a numeric array, without objects.")
-        if array.ndim == 0 or any(size == 0 for size in array.shape):
-            raise ValueError("Volume data must have at least one nonempty axis.")
-        self.raw_shape = tuple(array.shape)
-        if array.ndim < 3:
-            array = array.reshape(array.shape + (1,) * (3 - array.ndim))
+        self.raw_shape = tuple(np.shape(data))
+        array = ensure_spatial_dimensions(data)
         try:
             axes = tuple(spatial_axes)
         except TypeError as exc:
@@ -132,36 +127,7 @@ def read_cfl(path):
     Accept a base path or either filename. The header must contain exactly one
     non-comment dimensions line and the binary payload must match it exactly.
     """
-    base = Path(path).expanduser()
-    if base.suffix.lower() in (".cfl", ".hdr"):
-        base = base.with_suffix("")
-    header = Path(str(base) + ".hdr")
-    payload = Path(str(base) + ".cfl")
-    if not header.is_file() or not payload.is_file():
-        raise FileNotFoundError("Expected both {} and {}.".format(header, payload))
-    try:
-        lines = [line.strip() for line in header.read_text(encoding="utf-8").splitlines()
-                 if line.strip() and not line.lstrip().startswith("#")]
-    except UnicodeError as exc:
-        raise ValueError("CFL header must be a text file containing dimensions.") from exc
-    if len(lines) != 1:
-        raise ValueError("CFL header must contain exactly one dimensions line.")
-    try:
-        dimensions = tuple(int(token) for token in lines[0].split())
-    except ValueError as exc:
-        raise ValueError("CFL dimensions must be positive integers.") from exc
-    if not dimensions or any(size <= 0 for size in dimensions):
-        raise ValueError("CFL dimensions must be positive integers.")
-    dtype = np.dtype("<c8")
-    expected_bytes = math.prod(dimensions) * dtype.itemsize
-    actual_bytes = payload.stat().st_size
-    if actual_bytes != expected_bytes:
-        raise ValueError(
-            "CFL payload size mismatch: header requires {} bytes, found {}.".format(
-                expected_bytes, actual_bytes
-            )
-        )
-    return np.memmap(payload, dtype=dtype, mode="r", shape=dimensions, order="F")
+    return readcfl(path, mmap=True)
 
 
 def load_dataset(path, spatial_axes=(0, 1, 2), spacing=None):
